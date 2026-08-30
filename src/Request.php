@@ -40,19 +40,43 @@ class Request
     public static function createFromGlobals()
     {
         $method = isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : 'GET';
-        $uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '/';
-        $uri = parse_url($uri, PHP_URL_PATH) ?: '/';
-
-        // 去掉入口脚本（如 /index.php）
-        $scriptName = isset($_SERVER['SCRIPT_NAME']) ? $_SERVER['SCRIPT_NAME'] : '';
-        if ($scriptName !== '' && $uri !== '' && strpos($uri, $scriptName) === 0) {
-            $uri = substr($uri, strlen($scriptName));
-        }
+        $uri = self::extractPath();
 
         $headers = self::resolveHeaders();
         $body = self::parseBody($method, $headers);
 
         return new self($method, $uri, $_GET, $body, $headers);
+    }
+
+    /**
+     * 从运行环境提取路由路径，兼容多种入口形式：
+     *   /admin/index.php/login  ->  /login
+     *   /index.php/login        ->  /login
+     *   /login                  ->  /login
+     */
+    private static function extractPath()
+    {
+        // 1) PATH_INFO 就是入口脚本之后的部分
+        if (isset($_SERVER['PATH_INFO']) && $_SERVER['PATH_INFO'] !== '') {
+            return '/' . ltrim($_SERVER['PATH_INFO'], '/');
+        }
+
+        $uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '/';
+        $uri = parse_url($uri, PHP_URL_PATH) ?: '/';
+
+        // 2) 去掉 SCRIPT_NAME 前缀（如 /admin/index.php）
+        $scriptName = isset($_SERVER['SCRIPT_NAME']) ? $_SERVER['SCRIPT_NAME'] : '';
+        if ($scriptName !== '' && strpos($uri, $scriptName) === 0) {
+            $path = substr($uri, strlen($scriptName));
+        }
+        // 3) 兜底：找到 index.php 并截取其后（兼容各种反代 / 重写 / 子目录场景）
+        elseif (($pos = strpos($uri, 'index.php')) !== false) {
+            $path = substr($uri, $pos + strlen('index.php'));
+        } else {
+            $path = $uri;
+        }
+
+        return '/' . ltrim($path, '/');
     }
 
     private static function resolveHeaders()
