@@ -64,19 +64,22 @@ class Request
         $uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '/';
         $uri = parse_url($uri, PHP_URL_PATH) ?: '/';
 
-        // 2) 去掉 SCRIPT_NAME 前缀（如 /admin/index.php）
-        $scriptName = isset($_SERVER['SCRIPT_NAME']) ? $_SERVER['SCRIPT_NAME'] : '';
-        if ($scriptName !== '' && strpos($uri, $scriptName) === 0) {
-            $path = substr($uri, strlen($scriptName));
-        }
-        // 3) 兜底：找到 index.php 并截取其后（兼容各种反代 / 重写 / 子目录场景）
-        elseif (($pos = strpos($uri, 'index.php')) !== false) {
-            $path = substr($uri, $pos + strlen('index.php'));
-        } else {
-            $path = $uri;
+        // 2) 找到 index.php 并截取其后。
+        //    这是最可靠的方式：即使 SCRIPT_NAME 被某些环境设置成完整 URI
+        //    （如 /admin/index.php/login），也能正确得到 /login。
+        $pos = strpos($uri, 'index.php');
+        if ($pos !== false) {
+            return '/' . ltrim(substr($uri, $pos + strlen('index.php')), '/');
         }
 
-        return '/' . ltrim($path, '/');
+        // 3) 去掉 SCRIPT_NAME 前缀（针对非 index.php 的入口文件，如 app.php / router.php）
+        $scriptName = isset($_SERVER['SCRIPT_NAME']) ? $_SERVER['SCRIPT_NAME'] : '';
+        if ($scriptName !== '' && strpos($uri, $scriptName) === 0) {
+            return '/' . ltrim(substr($uri, strlen($scriptName)), '/');
+        }
+
+        // 4) 无法识别入口脚本，原样返回
+        return '/' . ltrim($uri, '/');
     }
 
     private static function resolveHeaders()
