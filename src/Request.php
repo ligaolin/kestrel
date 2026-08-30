@@ -51,6 +51,7 @@ class Request
     /**
      * 从运行环境提取路由路径，兼容多种入口形式：
      *   /admin/index.php/login  ->  /login
+     *   /admin/app.php/login    ->  /login
      *   /index.php/login        ->  /login
      *   /login                  ->  /login
      */
@@ -64,21 +65,13 @@ class Request
         $uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '/';
         $uri = parse_url($uri, PHP_URL_PATH) ?: '/';
 
-        // 2) 找到 index.php 并截取其后。
-        //    这是最可靠的方式：即使 SCRIPT_NAME 被某些环境设置成完整 URI
-        //    （如 /admin/index.php/login），也能正确得到 /login。
-        $pos = strpos($uri, 'index.php');
-        if ($pos !== false) {
-            return '/' . ltrim(substr($uri, $pos + strlen('index.php')), '/');
+        // 2) 找到入口 .php 文件（不限于 index.php），截取其后。
+        //    兼容 SCRIPT_NAME 被设置成完整 URI 的异常环境。
+        if (preg_match('#\.php(?:/|$)#i', $uri, $m, PREG_OFFSET_CAPTURE)) {
+            return '/' . ltrim(substr($uri, $m[0][1] + 4), '/');
         }
 
-        // 3) 去掉 SCRIPT_NAME 前缀（针对非 index.php 的入口文件，如 app.php / router.php）
-        $scriptName = isset($_SERVER['SCRIPT_NAME']) ? $_SERVER['SCRIPT_NAME'] : '';
-        if ($scriptName !== '' && strpos($uri, $scriptName) === 0) {
-            return '/' . ltrim(substr($uri, strlen($scriptName)), '/');
-        }
-
-        // 4) 无法识别入口脚本，原样返回
+        // 3) 没有 .php 时（如伪静态），原样返回
         return '/' . ltrim($uri, '/');
     }
 

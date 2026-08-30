@@ -463,19 +463,27 @@ class Router
     {
         if (is_array($callable)) {
             $reflection = new \ReflectionMethod($callable[0], $callable[1]);
+            // 静态方法传 null，实例方法传实例对象
+            $object = $reflection->isStatic() ? null : $callable[0];
         } elseif (is_string($callable) && strpos($callable, '::') !== false) {
             $reflection = new \ReflectionMethod($callable);
+            $object = null;
         } elseif (is_object($callable) && !($callable instanceof Closure)) {
             $reflection = new \ReflectionMethod($callable, '__invoke');
+            $object = $callable;
         } else {
             $reflection = new \ReflectionFunction($callable);
+            if (count($reflection->getParameters()) === 0) {
+                return $reflection->invokeArgs(array());
+            }
+            return $reflection->invokeArgs(array($request));
         }
 
         if (count($reflection->getParameters()) === 0) {
-            return $reflection->invokeArgs(array());
+            return $reflection->invokeArgs($object, array());
         }
 
-        return $reflection->invokeArgs(array($request));
+        return $reflection->invokeArgs($object, array($request));
     }
 
     // ---------- 路径匹配 ----------
