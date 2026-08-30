@@ -10,6 +10,8 @@
 
 require __DIR__ . '/../vendor/autoload.php';
 
+use Kestrel\Router\Exception\MethodNotAllowedException;
+use Kestrel\Router\Exception\RouteNotFoundException;
 use Kestrel\Router\Middleware\CorsMiddleware;
 use Kestrel\Router\Request;
 use Kestrel\Router\Response;
@@ -64,6 +66,16 @@ $router->group('/api', function ($api) {
     $api->get('/users/{id}', 'UserController@show');
 }, array());
 
-// 分发并输出
-$response = $router->dispatch();
+// 分发并输出：出错时抛异常，可在此自定义错误响应
+try {
+    $response = $router->dispatch();
+} catch (RouteNotFoundException $e) {
+    $response = new Response('自定义 404', Response::HTTP_NOT_FOUND);
+} catch (MethodNotAllowedException $e) {
+    $response = (new Response('自定义 405', Response::HTTP_METHOD_NOT_ALLOWED))
+        ->header('Allow', implode(', ', $e->getAllowedMethods()));
+} catch (\Exception $e) {
+    $response = new Response('自定义 500: ' . $e->getMessage(), Response::HTTP_INTERNAL_SERVER_ERROR);
+}
+
 $response->send();

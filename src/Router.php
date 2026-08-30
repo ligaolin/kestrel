@@ -4,6 +4,7 @@ namespace Kestrel\Router;
 
 use Closure;
 use Kestrel\Router\Exception\MethodNotAllowedException;
+use Kestrel\Router\Exception\RouteNotFoundException;
 
 class Router
 {
@@ -118,6 +119,14 @@ class Router
     /**
      * 分发请求并返回 Response。
      * 未传 $request 时自动从当前运行环境构建。
+     *
+     * 出错时抛出异常而不是返回错误响应：
+     *   - 无匹配路由：RouteNotFoundException
+     *   - 方法不允许：MethodNotAllowedException
+     *   - 处理器/中间件抛出的其它异常会原样向上传播
+     *
+     * @throws RouteNotFoundException
+     * @throws MethodNotAllowedException
      */
     public function dispatch(Request $request = null)
     {
@@ -153,18 +162,14 @@ class Router
                 return (new Response('', Response::HTTP_NO_CONTENT))
                     ->header('Allow', implode(', ', $this->expandMethods($allowed)));
             }
-            return new Response('404 Not Found', Response::HTTP_NOT_FOUND);
+            throw new RouteNotFoundException("No route matches OPTIONS {$uri}");
         }
 
-        try {
-            $result = $this->match($method, $uri);
-        } catch (MethodNotAllowedException $e) {
-            return (new Response('405 Method Not Allowed', Response::HTTP_METHOD_NOT_ALLOWED))
-                ->header('Allow', implode(', ', $e->getAllowedMethods()));
-        }
+        // 命中返回 array；路径存在但方法不允许时抛出 MethodNotAllowedException
+        $result = $this->match($method, $uri);
 
         if ($result === null) {
-            return new Response('404 Not Found', Response::HTTP_NOT_FOUND);
+            throw new RouteNotFoundException("No route matches {$method} {$uri}");
         }
 
         $request->setRouteParams($result['params']);
@@ -293,11 +298,7 @@ class Router
     private function runThroughMiddlewares(Request $request, callable $core, array $middlewares)
     {
         $next = function (Request $request) use ($core) {
-            try {
-                return $this->normalizeResponse($core($request));
-            } catch (\Exception $e) {
-                return new Response('Internal Server Error: ' . $e->getMessage(), Response::HTTP_INTERNAL_SERVER_ERROR);
-            }
+            return $this->normalizeResponse($core($request));
         };
 
         foreach (array_reverse($middlewares) as $middleware) {

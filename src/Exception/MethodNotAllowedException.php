@@ -2,7 +2,7 @@
 
 namespace Kestrel\Router\Exception;
 
-class MethodNotAllowedException extends \RuntimeException
+class MethodNotAllowedException extends RouterException
 {
     /** @var string[] */
     private $allowedMethods = array();

@@ -19,7 +19,7 @@
 - 命名路由 + 反向路由（URL 生成）
 - 请求对象：统一读取 query / body / JSON / 路由参数 / header
 - 响应对象：`text / html / json / redirect` 便捷构造 + 状态码常量
-- 自动处理 `HEAD`（回退 GET）、`OPTIONS`（返回 `Allow`）、`405 Method Not Allowed`
+- 自动处理 `HEAD`（回退 GET）、`OPTIONS`（返回 `Allow`）；404/405/处理器异常以异常抛出，可捕获后自定义输出
 
 ---
 
@@ -109,9 +109,17 @@ $router->get('/user/{id}', function (Request $request) {
     ]);
 });
 
-// 分发并输出响应
-$response = $router->dispatch();
-$response->send();
+// 分发并输出响应（出错时 dispatch() 抛异常，可捕获后自定义输出）
+try {
+    $response = $router->dispatch();
+    $response->send();
+} catch (\Kestrel\Router\Exception\RouteNotFoundException $e) {
+    // 404
+} catch (\Kestrel\Router\Exception\MethodNotAllowedException $e) {
+    // 405
+} catch (\Exception $e) {
+    // 500
+}
 ```
 
 用 PHP 内置服务器运行：
@@ -284,7 +292,7 @@ $router->middleware(new CorsMiddleware([
 ]));
 ```
 
-> 全局中间件会包裹包括 `404 / 405 / OPTIONS` 在内的所有响应，因此 CORS 预检（`OPTIONS`）也能正确带上跨域响应头。
+> 全局中间件会包裹正常响应与 `OPTIONS` 预检响应。注意：404/405 现在以异常形式抛出，若需要给它们加跨域头，请在 catch 分支里自行加上。
 
 ### Basic 认证
 
@@ -472,6 +480,34 @@ Response::HTTP_INTERNAL_SERVER_ERROR // 500
 
 ---
 
+## 错误处理
+
+`dispatch()` 出错时会抛出异常而不是返回错误响应，方便你捕获后自定义输出：
+
+| 异常 | 触发场景 |
+| --- | --- |
+| `RouteNotFoundException` | 没有匹配到路由（404） |
+| `MethodNotAllowedException` | 路径存在但请求方法不允许（405），可用 `getAllowedMethods()` 拿到允许的方法 |
+| 其它 `\Exception` | 控制器 / 中间件内部抛出的异常会原样向上传播（500） |
+
+```php
+try {
+    $response = $router->dispatch();
+} catch (\Kestrel\Router\Exception\RouteNotFoundException $e) {
+    $response = new Response('页面不存在', 404);
+} catch (\Kestrel\Router\Exception\MethodNotAllowedException $e) {
+    $response = (new Response('方法不允许', 405))
+        ->header('Allow', implode(', ', $e->getAllowedMethods()));
+} catch (\Exception $e) {
+    $response = new Response('服务器错误：' . $e->getMessage(), 500);
+}
+$response->send();
+```
+
+以上异常都继承自 `Kestrel\Router\Exception\RouterException`，也可以只捕获这个基类统一处理。
+
+---
+
 ## 手动匹配与测试
 
 不依赖 HTTP 环境，可手动调用 `match()` / `dispatch()`：
@@ -482,7 +518,7 @@ $router->get('/user/{id:\d+}', $handler)->name('user.show');
 
 // 手动构造请求
 $request = new Request('GET', '/user/12');
-$response = $router->dispatch($request); // 返回 Response
+$response = $router->dispatch($request); // 命中返回 Response；未命中/方法不允许抛异常
 
 // 只做匹配
 $result = $router->match('GET', '/user/12');
@@ -515,7 +551,7 @@ php -S localhost:8000 examples/basic.php
 5. **请求对象解耦**：新增 `Request::createFromGlobals()`，可注入数据便于测试；区分路由参数 / query / body；新增 header 读取。
 6. **响应增强**：状态码常量、`text/html/json/redirect` 工厂、`send()` 增加 `headers_sent()` 保护。
 7. **处理器更健壮**：反射调用，允许方法不接收 `$request`；支持 `__invoke`；命名空间解析更统一。
-8. **异常处理**：处理器异常统一捕获并返回 500（PHP 5.4 兼容，捕获 `\Exception`）；非法中间件/非法路由模式抛出明确异常。
+8. **异常处理**：404/405 分别抛 `RouteNotFoundException` / `MethodNotAllowedException`，处理器内部异常原样向上传播，可 try/catch 后自定义输出。
 9. **反向路由**：`name()` + `url()` 生成 URL。
 10. **多方法路由**：`map(['GET','POST'], ...)`，一个 `Route` 可绑定多个方法。
 
