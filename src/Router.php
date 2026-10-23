@@ -125,13 +125,16 @@ class Router
      *   - 方法不允许：MethodNotAllowedException
      *   - 处理器/中间件抛出的其它异常会原样向上传播
      *
+     * @param Request|null $request
      * @throws RouteNotFoundException
      * @throws MethodNotAllowedException
      */
-    public function dispatch(Request $request = null)
+    public function dispatch($request = null)
     {
         if ($request === null) {
             $request = Request::createFromGlobals();
+        } elseif (!($request instanceof Request)) {
+            throw new \InvalidArgumentException('Argument 1 passed to dispatch() must be an instance of Kestrel\Router\Request or null.');
         }
 
         return $this->runThroughMiddlewares(

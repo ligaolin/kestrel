@@ -7,7 +7,7 @@ class MethodNotAllowedException extends RouterException
     /** @var string[] */
     private $allowedMethods = array();
 
-    public function __construct(array $allowedMethods, $message = '', $code = 0, \Exception $previous = null)
+    public function __construct(array $allowedMethods, $message = '', $code = 0, $previous = null)
     {
         $this->allowedMethods = $allowedMethods;
 
