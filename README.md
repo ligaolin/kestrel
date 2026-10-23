@@ -542,21 +542,6 @@ php -S localhost:8000 examples/basic.php
 
 ---
 
-## 与原版（`admin\service\router`）的主要优化
-
-1. **标准包结构**：`composer.json` + PSR-4，命名空间改为 `Kestrel\Router`，`MiddlewareInterface` 独立成文件（PSR-4 一个类一个文件）。
-2. **分组体验**：`RouteGroup` 增加 `get/post/.../map/middleware/group` 链式方法，支持嵌套分组与组中间件。
-3. **路径匹配修复**：静态部分用 `preg_quote` 转义，避免 `.`、`-` 等字符误匹配；新增可选参数 `{path?}`。
-4. **HTTP 语义**：新增 `PATCH/OPTIONS/HEAD`；`HEAD` 回退 `GET`；自动 `OPTIONS` 返回 `Allow`；区分 `404` 与 `405`。
-5. **请求对象解耦**：新增 `Request::createFromGlobals()`，可注入数据便于测试；区分路由参数 / query / body；新增 header 读取。
-6. **响应增强**：状态码常量、`text/html/json/redirect` 工厂、`send()` 增加 `headers_sent()` 保护。
-7. **处理器更健壮**：反射调用，允许方法不接收 `$request`；支持 `__invoke`；命名空间解析更统一。
-8. **异常处理**：404/405 分别抛 `RouteNotFoundException` / `MethodNotAllowedException`，处理器内部异常原样向上传播，可 try/catch 后自定义输出。
-9. **反向路由**：`name()` + `url()` 生成 URL。
-10. **多方法路由**：`map(['GET','POST'], ...)`，一个 `Route` 可绑定多个方法。
-
----
-
 ## License
 
 MIT
