@@ -38,10 +38,17 @@ class RouteGroup
 
     /**
      * 嵌套分组：前缀与中间件会累积到子分组。
+     *
+     * @param string   $prefix
+     * @param callable $callback
+     * @param array    $middlewares 本组追加的中间件，父组中间件先执行
      */
-    public function group($prefix, callable $callback)
+    public function group($prefix, callable $callback, array $middlewares = array())
     {
-        $group = new self($this->join($this->prefix, $prefix), $this->middlewares);
+        $group = new self(
+            $this->join($this->prefix, $prefix),
+            array_merge($this->middlewares, $middlewares)
+        );
         $callback($group);
         $this->groups[] = $group;
         return $group;

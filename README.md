@@ -190,10 +190,10 @@ $router->group('/admin', function ($admin) {
     $admin->get('/dashboard', $handler); // /admin/dashboard
     $admin->get('/users', $handler);     // /admin/users
 
-    // 嵌套分组
+    // 嵌套分组（第三个参数同样可传本组中间件，父组中间件会先执行）
     $admin->group('/settings', function ($settings) {
         $settings->get('/profile', $handler); // /admin/settings/profile
-    });
+    }, [new AuthMiddleware()]);
 });
 
 // 分组 + 组中间件
