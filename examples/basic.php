@@ -66,16 +66,18 @@ $router->group('/api', function ($api) {
     $api->get('/users/{id}', 'UserController@show');
 }, array());
 
-// 分发并输出：出错时抛异常，可在此自定义错误响应
-try {
-    $response = $router->dispatch();
-} catch (RouteNotFoundException $e) {
-    $response = new Response('自定义 404', Response::HTTP_NOT_FOUND);
-} catch (MethodNotAllowedException $e) {
-    $response = (new Response('自定义 405', Response::HTTP_METHOD_NOT_ALLOWED))
-        ->header('Allow', implode(', ', $e->getAllowedMethods()));
-} catch (\Exception $e) {
-    $response = new Response('自定义 500: ' . $e->getMessage(), Response::HTTP_INTERNAL_SERVER_ERROR);
-}
+// 错误处理器：404/405/异常统一转为自定义响应。
+// 错误响应在中间件链内生成，会穿过上方注册的全局中间件（CORS 头不丢）。
+$router->setErrorHandler(function ($e) {
+    if ($e instanceof MethodNotAllowedException) {
+        return (new Response('自定义 405', Response::HTTP_METHOD_NOT_ALLOWED))
+            ->header('Allow', implode(', ', $e->getAllowedMethods()));
+    }
+    if ($e instanceof RouteNotFoundException) {
+        return new Response('自定义 404', Response::HTTP_NOT_FOUND);
+    }
+    return new Response('自定义 500: ' . $e->getMessage(), Response::HTTP_INTERNAL_SERVER_ERROR);
+});
 
-$response->send();
+// 分发并输出：设置错误处理器后无需再 try/catch
+$router->dispatch()->send();

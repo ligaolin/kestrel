@@ -14,6 +14,9 @@ class Router
     /** @var array */
     private $globalMiddlewares = array();
 
+    /** @var mixed|null 错误处理器，设置后 dispatch 将异常转交它生成响应 */
+    private $errorHandler = null;
+
     /** @var string 控制器命名空间前缀 */
     private $namespace = '';
 
@@ -44,6 +47,21 @@ class Router
     public function addGlobalMiddleware($middleware)
     {
         return $this->middleware($middleware);
+    }
+
+    /**
+     * 注册错误处理器（闭包、[类, 方法]、'类@方法'、可调用类，写法与路由处理器一致）。
+     *
+     * 处理器可声明 0~2 个参数：()、(\Exception $e)、(\Exception $e, Request $request)。
+     * 返回值可以是 Response、字符串或数组（自动转换）。错误响应在中间件链内生成，
+     * 会穿过全局中间件（如 CORS），因此不需要手动补跨域头。
+     *
+     * 设置后 dispatch() 不再抛出 404/405 及处理器内部异常；未设置时保持抛异常行为。
+     */
+    public function setErrorHandler($handler)
+    {
+        $this->errorHandler = $handler;
+        return $this;
     }
 
     public function addRoute($methods, $pattern, $handler)
@@ -120,10 +138,13 @@ class Router
      * 分发请求并返回 Response。
      * 未传 $request 时自动从当前运行环境构建。
      *
-     * 出错时抛出异常而不是返回错误响应：
+     * 未设置错误处理器时，出错会抛出异常而不是返回错误响应：
      *   - 无匹配路由：RouteNotFoundException
      *   - 方法不允许：MethodNotAllowedException
      *   - 处理器/中间件抛出的其它异常会原样向上传播
+     *
+     * 设置了 setErrorHandler() 后，上述异常会转交错误处理器生成响应，
+     * 且响应仍会穿过全局中间件（如 CORS）。
      *
      * @param Request|null $request
      * @throws RouteNotFoundException
@@ -140,10 +161,90 @@ class Router
         return $this->runThroughMiddlewares(
             $request,
             function (Request $request) {
-                return $this->dispatchCore($request);
+                return $this->dispatchWithErrorHandling($request);
             },
             $this->globalMiddlewares
         );
+    }
+
+    /**
+     * 设置了错误处理器时，把分发过程中抛出的异常转换为响应，
+     * 使其继续穿过全局中间件；未设置时保持原抛异常行为。
+     */
+    private function dispatchWithErrorHandling(Request $request)
+    {
+        if ($this->errorHandler === null) {
+            return $this->dispatchCore($request);
+        }
+
+        try {
+            return $this->dispatchCore($request);
+        } catch (\Exception $e) {
+            return $this->handleError($e, $request);
+        }
+    }
+
+    private function handleError(\Exception $e, Request $request)
+    {
+        try {
+            $resolved = $this->resolveHandler($this->errorHandler);
+        } catch (\Exception $ex) {
+            throw $e;
+        }
+
+        if ($resolved instanceof Closure) {
+            $reflection = new \ReflectionFunction($resolved);
+        } elseif (is_array($resolved) && count($resolved) === 2) {
+            list($class, $method) = $resolved;
+
+            if (is_string($class)) {
+                if (!class_exists($class)) {
+                    throw $e;
+                }
+                $class = new $class();
+            }
+
+            if (!is_object($class) || !method_exists($class, $method)) {
+                throw $e;
+            }
+
+            $reflection = new \ReflectionMethod($class, $method);
+            $object = $reflection->isStatic() ? null : $class;
+        } elseif (is_object($resolved) && is_callable($resolved)) {
+            $reflection = new \ReflectionMethod($resolved, '__invoke');
+            $object = $resolved;
+        } elseif (is_string($resolved) && is_callable($resolved)) {
+            if (strpos($resolved, '::') !== false) {
+                $reflection = new \ReflectionMethod($resolved);
+                $object = null;
+            } else {
+                $resolved = new $resolved();
+                $reflection = new \ReflectionMethod($resolved, '__invoke');
+                $object = $resolved;
+            }
+        } else {
+            throw $e;
+        }
+
+        $count = count($reflection->getParameters());
+
+        if ($reflection instanceof \ReflectionFunction) {
+            if ($count === 0) {
+                return $reflection->invokeArgs(array());
+            }
+            if ($count === 1) {
+                return $reflection->invokeArgs(array($e));
+            }
+            return $reflection->invokeArgs(array($e, $request));
+        }
+
+        if ($count === 0) {
+            return $reflection->invokeArgs($object, array());
+        }
+        if ($count === 1) {
+            return $reflection->invokeArgs($object, array($e));
+        }
+        return $reflection->invokeArgs($object, array($e, $request));
     }
 
     /**

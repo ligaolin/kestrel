@@ -19,7 +19,7 @@
 - 命名路由 + 反向路由（URL 生成）
 - 请求对象：统一读取 query / body / JSON / 路由参数 / header
 - 响应对象：`text / html / json / redirect` 便捷构造 + 状态码常量
-- 自动处理 `HEAD`（回退 GET）、`OPTIONS`（返回 `Allow`）；404/405/处理器异常以异常抛出，可捕获后自定义输出
+- 自动处理 `HEAD`（回退 GET）、`OPTIONS`（返回 `Allow`）；404/405/处理器异常默认以异常抛出，也可用 `setErrorHandler()` 统一转为自定义响应
 
 ---
 
@@ -292,7 +292,7 @@ $router->middleware(new CorsMiddleware([
 ]));
 ```
 
-> 全局中间件会包裹正常响应与 `OPTIONS` 预检响应。注意：404/405 现在以异常形式抛出，若需要给它们加跨域头，请在 catch 分支里自行加上。
+> 全局中间件会包裹正常响应与 `OPTIONS` 预检响应。404/405 以异常形式抛出，若需要给它们也加跨域头，推荐配合 [`setErrorHandler()`](#错误处理) 使用——错误响应同样会穿过全局中间件，跨域头自动带上。
 
 ### Basic 认证
 
@@ -482,7 +482,7 @@ Response::HTTP_INTERNAL_SERVER_ERROR // 500
 
 ## 错误处理
 
-`dispatch()` 出错时会抛出异常而不是返回错误响应，方便你捕获后自定义输出：
+`dispatch()` 出错时默认抛出异常而不是返回错误响应，方便你捕获后自定义输出：
 
 | 异常 | 触发场景 |
 | --- | --- |
@@ -505,6 +505,34 @@ $response->send();
 ```
 
 以上异常都继承自 `Kestrel\Router\Exception\RouterException`，也可以只捕获这个基类统一处理。
+
+### 用 setErrorHandler 统一处理（推荐）
+
+不想写 try/catch 时，可以注册一个错误处理器，404/405/500 统一在这里转成响应：
+
+```php
+$router->setErrorHandler(function (\Exception $e) {
+    if ($e instanceof \Kestrel\Router\Exception\MethodNotAllowedException) {
+        return (new Response('方法不允许', 405))
+            ->header('Allow', implode(', ', $e->getAllowedMethods()));
+    }
+    if ($e instanceof \Kestrel\Router\Exception\RouteNotFoundException) {
+        return Response::json(array('msg' => '页面不存在'), 404);
+    }
+    error_log($e->getMessage());
+    return Response::json(array('msg' => '服务器错误'), 500);
+});
+
+$router->dispatch()->send();
+```
+
+要点：
+
+- 处理器可声明 0~2 个参数：`()`、`(\Exception $e)`、`(\Exception $e, Request $request)`；返回值可以是 `Response`、字符串或数组。
+- 写法与路由处理器一致：闭包、`[类, 方法]`、`'类@方法'`、`'类::方法'`、可调用类。
+- **错误响应在中间件链内生成，会穿过全局中间件**——比如注册了 `CorsMiddleware` 时，404/405/500 也会自动带上跨域头，前端不再把真实错误误报成 CORS 失败。
+- 设置后 `dispatch()` 不再抛出路由异常和处理器异常；全局中间件自身抛出的异常仍会向上传播。
+- 不调用 `setErrorHandler()` 时，行为与默认抛异常完全一致。
 
 ---
 
