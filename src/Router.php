@@ -52,7 +52,8 @@ class Router
     /**
      * 注册错误处理器（闭包、[类, 方法]、'类@方法'、可调用类，写法与路由处理器一致）。
      *
-     * 处理器可声明 0~2 个参数：()、(\Exception $e)、(\Exception $e, Request $request)。
+     * 处理器可声明 0~2 个参数：()、($e)、($e, Request $request)，$e 为 \Exception
+     * 或（PHP 7+）\Error 等 \Throwable。
      * 返回值可以是 Response、字符串或数组（自动转换）。错误响应在中间件链内生成，
      * 会穿过全局中间件（如 CORS），因此不需要手动补跨域头。
      *
@@ -181,10 +182,13 @@ class Router
             return $this->dispatchCore($request);
         } catch (\Exception $e) {
             return $this->handleError($e, $request);
+        } catch (\Throwable $e) {
+            // PHP 7+ 的 \Error（TypeError、调用未定义函数等）；PHP 5.x 中 \Throwable 不存在，永远不会命中
+            return $this->handleError($e, $request);
         }
     }
 
-    private function handleError(\Exception $e, Request $request)
+    private function handleError($e, Request $request)
     {
         try {
             $resolved = $this->resolveHandler($this->errorHandler);
