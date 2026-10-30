@@ -532,6 +532,43 @@ class Router
         return $this->namespace . ltrim($class, '\\');
     }
 
+    /**
+     * 实例化控制器。如果 __construct 的类型提示为 Request，则自动传入。
+     */
+    private function instantiateController($class, Request $request)
+    {
+        $reflection = new \ReflectionClass($class);
+        $constructor = $reflection->getConstructor();
+
+        if ($constructor === null) {
+            return new $class();
+        }
+
+        $params = $constructor->getParameters();
+        if (count($params) === 0) {
+            return new $class();
+        }
+
+        $args = array();
+        foreach ($params as $param) {
+            $type = $param->getType();
+            if ($type !== null && !$type->isBuiltin()) {
+                $typeName = $type->getName();
+                if (is_a($request, $typeName, true)) {
+                    $args[] = $request;
+                    continue;
+                }
+            }
+            if ($param->isDefaultValueAvailable()) {
+                $args[] = $param->getDefaultValue();
+            } else {
+                throw new \RuntimeException("Cannot resolve parameter \${$param->getName()} in {$class}::__construct");
+            }
+        }
+
+        return $reflection->newInstanceArgs($args);
+    }
+
     private function executeHandler($handler, Request $request)
     {
         $resolved = $this->resolveHandler($handler);
@@ -547,7 +584,7 @@ class Router
                 if (!class_exists($controller)) {
                     throw new \RuntimeException("Controller class not found: {$controller}");
                 }
-                $controller = new $controller();
+                $controller = $this->instantiateController($controller, $request);
             }
 
             if (!is_object($controller) || !method_exists($controller, $method)) {
